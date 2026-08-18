@@ -1,7 +1,5 @@
-import { demoUser } from "@/lib/mock-data";
+import { supabase } from "@/lib/supabase";
 import type { User } from "@/lib/types";
-
-const delay = (ms = 350) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 export interface Credentials {
   email: string;
@@ -12,25 +10,101 @@ export interface SignupPayload extends Credentials {
   name: string;
 }
 
-/** Mock auth. Replace with Supabase Auth (signInWithPassword / signUp / OAuth). */
+function mapSupabaseUser(user: {
+  id: string;
+  email?: string;
+  user_metadata?: {
+    name?: string;
+  };
+}): User {
+  return {
+    id: user.id,
+    name: user.user_metadata?.name || user.email?.split("@")[0] || "User",
+    email: user.email || "",
+    avatar: user.user_metadata?.avatar_url || null,
+    plan: "free",
+    createdAt: user.created_at,
+  };
+}
+
 export const authService = {
-  async getCurrentUser(): Promise<User> {
-    await delay(120);
-    return demoUser;
+  async getCurrentUser(): Promise<User | null> {
+    const {
+      data: { user },
+      error,
+    } = await supabase.auth.getUser();
+
+    if (error) {
+      console.error("Failed to get current user:", error);
+      return null;
+    }
+
+    if (!user) {
+      return null;
+    }
+
+    return mapSupabaseUser(user);
   },
+
   async login(credentials: Credentials): Promise<User> {
-    await delay();
-    return { ...demoUser, email: credentials.email };
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: credentials.email,
+      password: credentials.password,
+    });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    if (!data.user) {
+      throw new Error("Login failed. Please try again.");
+    }
+
+    return mapSupabaseUser(data.user);
   },
+
   async signup(payload: SignupPayload): Promise<User> {
-    await delay();
-    return { ...demoUser, name: payload.name, email: payload.email };
+    const { data, error } = await supabase.auth.signUp({
+      email: payload.email,
+      password: payload.password,
+      options: {
+        data: {
+          name: payload.name,
+        },
+      },
+    });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    if (!data.user) {
+      throw new Error("Account creation failed. Please try again.");
+    }
+
+    return mapSupabaseUser(data.user);
   },
-  async requestPasswordReset(email: string): Promise<{ sent: boolean; email: string }> {
-    await delay();
-    return { sent: true, email };
+
+  async requestPasswordReset(
+    email: string
+  ): Promise<{ sent: boolean; email: string }> {
+    const { error } = await supabase.auth.resetPasswordForEmail(email);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return {
+      sent: true,
+      email,
+    };
   },
+
   async logout(): Promise<void> {
-    await delay(120);
+    const { error } = await supabase.auth.signOut();
+
+    if (error) {
+      throw new Error(error.message);
+    }
   },
 };
